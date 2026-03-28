@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App</title>
+    <!-- Link file CSS riêng -->
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Load React & ReactDOM từ CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel standalone để biên dịch JSX trực tiếp trên trình duyệt -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const API_URL = "http://127.0.0.1:8000";
+
+        function App() {
+            const [status, setStatus] = useState("start"); // "start" | "loading" | "playing" | "result"
+            const [questions, setQuestions] = useState([]);
+            const [answers, setAnswers] = useState([]); // [{question_id, selected_answer}]
+            const [resultData, setResultData] = useState(null);
+            const [currentQIndex, setCurrentQIndex] = useState(0);
+
+            // Hàm bắt đầu làm bài
+            const handleStart = async () => {
+                setStatus("loading");
+                try {
+                    const res = await fetch(`${API_URL}/questions`);
+                    if (!res.ok) throw new Error("Server response not ok");
+                    const data = await res.json();
+                    setQuestions(data);
+                    setAnswers([]);
+                    setCurrentQIndex(0);
+                    setStatus("playing");
+                } catch (error) {
+                    alert("Không thể kết nối đến server backend. Đảm bảo uvicorn main:app đang chạy trên port 8000.");
+                    setStatus("start");
+                }
+            };
+
+            // Hàm chọn đáp án
+            const handleAnswer = (questionId, option) => {
+                const newAnswers = [...answers];
+                const existingIndex = newAnswers.findIndex(a => a.question_id === questionId);
+                if (existingIndex > -1) {
+                    newAnswers[existingIndex].selected_answer = option;
+                } else {
+                    newAnswers.push({ question_id: questionId, selected_answer: option });
+                }
+                setAnswers(newAnswers);
+            };
+
+            // Hàm chuyển câu tiếp theo
+            const handleNext = () => {
+                if (currentQIndex < questions.length - 1) {
+                    setCurrentQIndex(currentQIndex + 1);
+                }
+            };
+
+            // Hàm quay lại câu trước
+            const handlePrev = () => {
+                if (currentQIndex > 0) {
+                    setCurrentQIndex(currentQIndex - 1);
+                }
+            };
+
+            // Hàm nộp bài
+            const handleSubmit = async () => {
+                if (answers.length < questions.length) {
+                    const confirmSubmit = window.confirm("Bạn chưa chọn đáp án cho tất cả câu hỏi. Vẫn nộp bài?");
+                    if (!confirmSubmit) return;
+                }
+
+                setStatus("loading");
+                try {
+                    const res = await fetch(`${API_URL}/submit`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ answers })
+                    });
+                    const data = await res.json();
+                    setResultData(data);
+                    setStatus("result");
+                } catch (error) {
+                    alert("Lỗi khi nộp bài!");
+                    setStatus("playing");
+                }
+            };
+
+            // Render Loading
+            if (status === "loading") {
+                return (
+                    <div className="container">
+                        <h2>Đang tải...</h2>
+                    </div>
+                );
+            }
+
+            // Render Result
+            if (status === "result" && resultData) {
+                return (
+                    <div className="container">
+                        <h1>Kết quả của bạn</h1>
+                        <div className="score-circle">
+                            {resultData.score}
+                        </div>
+                        <p style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                            Số câu đúng: {resultData.correct_count} / {resultData.total}
+                        </p>
+                        
+                        <div className="review-list">
+                            <h3>Chi tiết:</h3>
+                            {resultData.results.map((r, i) => {
+                                const q = questions.find(q => q.id === r.question_id);
+                                return (
+                                    <div key={i} className="review-item">
+                                        <h4>Câu {i + 1}: {q?.question}</h4>
+                                        <p>Bạn chọn: <strong>{r.selected_answer || "Chưa chọn"}</strong></p>
+                                        {r.is_correct ? (
+                                            <p className="review-correct">✓ Chính xác</p>
+                                        ) : (
+                                            <p className="review-incorrect">
+                                                ✗ Sai. Đáp án đúng: {r.correct_answer}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        <button className="btn-primary" style={{marginTop: '20px'}} onClick={() => setStatus("start")}>
+                            Chơi lại
+                        </button>
+                    </div>
+                );
+            }
+
+            // Render Playing
+            if (status === "playing" && questions.length > 0) {
+                const currentQuestion = questions[currentQIndex];
+                const currentAnswer = answers.find(a => a.question_id === currentQuestion.id)?.selected_answer;
+                
+                return (
+                    <div className="container">
+                        <div className="progress">
+                            Câu hỏi {currentQIndex + 1} / {questions.length}
+                        </div>
+                        
+                        <h2 className="question-text">{currentQuestion.question}</h2>
+                        
+                        <div className="options-container">
+                            {currentQuestion.options.map((opt, i) => (
+                                <button 
+                                    key={i} 
+                                    className={`option-btn ${currentAnswer === opt ? 'selected' : ''}`}
+                                    onClick={() => handleAnswer(currentQuestion.id, opt)}
+                                >
+                                    {opt}
+                                </button>
+                            ))}
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between' }}>
+                            <button 
+                                className="option-btn" 
+                                style={{flex: 1, textAlign: 'center'}}
+                                onClick={handlePrev} 
+                                disabled={currentQIndex === 0}
+                            >
+                                Quay lại
+                            </button>
+                            
+                            {currentQIndex === questions.length - 1 ? (
+                                <button 
+                                    className="btn-primary" 
+                                    style={{flex: 1}}
+                                    onClick={handleSubmit}
+                                >
+                                    Nộp bài
+                                </button>
+                            ) : (
+                                <button 
+                                    className="btn-primary" 
+                                    style={{flex: 1}}
+                                    onClick={handleNext}
+                                >
+                                    Tiếp theo
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
+            // Render Start Screen
+            return (
+                <div className="container">
+                    <h1>Chào mừng đến với Trắc Nghiệm App</h1>
+                    <p style={{marginBottom: '30px', color: '#6b7280', fontSize: '16px'}}>
+                        Hãy sẵn sàng để kiểm tra kiến thức lập trình của bạn. 
+                        Bài ứng dụng bao gồm 5 câu hỏi liên quan đến Web Development và Fastapi.
+                    </p>
+                    <button className="btn-primary" onClick={handleStart}>
+                        Bắt đầu
+                    </button>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
