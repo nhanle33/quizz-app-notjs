@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+import sqlite3
+import hashlib
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
@@ -54,6 +56,57 @@ class Answer(BaseModel):
 
 class SubmitRequest(BaseModel):
     answers: List[Answer]
+
+  
+# --- Database & Auth Setup ---
+def init_db():
+    conn = sqlite3.connect("quiz.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password_hash TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+class UserAuth(BaseModel):
+    username: str
+    password: str
+
+@app.post("/register")
+def register(user: UserAuth):
+    conn = sqlite3.connect("quiz.db")
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
+                       (user.username, hash_password(user.password)))
+        conn.commit()
+        return {"message": "Đăng ký thành công!"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Tên đăng nhập đã tồn tại")
+    finally:
+        conn.close()
+
+@app.post("/login")
+def login(user: UserAuth):
+    conn = sqlite3.connect("quiz.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?", 
+                   (user.username, hash_password(user.password)))
+    user_record = cursor.fetchone()
+    conn.close()
+    
+    if user_record:
+        return {"message": "Đăng nhập thành công", "username": user.username}
+    raise HTTPException(status_code=401, detail="Sai tên đăng nhập hoặc mật khẩu")
 
 @app.get("/questions")
 def get_questions():

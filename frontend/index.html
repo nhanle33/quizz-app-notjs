@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quiz App</title>
     <!-- Link file CSS riêng -->
     <link rel="stylesheet" href="style.css">
-    
+
     <!-- Load React & ReactDOM từ CDN -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    
+
     <!-- Babel standalone để biên dịch JSX trực tiếp trên trình duyệt -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
+
 <body>
     <div id="root"></div>
 
@@ -22,11 +24,69 @@
         const API_URL = "http://127.0.0.1:8000";
 
         function App() {
-            const [status, setStatus] = useState("start"); // "start" | "loading" | "playing" | "result"
+            const [status, setStatus] = useState("login"); // "login" | "register" | "start" | "loading" | "playing" | "result"
             const [questions, setQuestions] = useState([]);
             const [answers, setAnswers] = useState([]); // [{question_id, selected_answer}]
             const [resultData, setResultData] = useState(null);
             const [currentQIndex, setCurrentQIndex] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(120);
+            const [usernameField, setUsernameField] = useState("");
+            const [passwordField, setPasswordField] = useState("");
+            const [user, setUser] = useState(null);
+
+            useEffect(() => {
+                const savedUser = localStorage.getItem("quiz_user");
+                if (savedUser) {
+                    setUser(savedUser);
+                    setStatus("start");
+                }
+            }, []);
+
+            // Xử lý xác thực (Đăng nhập / Đăng ký)
+            const handleAuth = async (isLogin) => {
+                if (!usernameField || !passwordField) {
+                    alert("Vui lòng nhập đầy đủ thông tin!");
+                    return;
+                }
+
+                setStatus("loading");
+                const endpoint = isLogin ? "login" : "register";
+                try {
+                    const res = await fetch(`${API_URL}/${endpoint}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username: usernameField, password: passwordField })
+                    });
+
+                    const data = await res.json();
+                    if (!res.ok) {
+                        alert(data.detail || "Có lỗi xảy ra");
+                        setStatus(isLogin ? "login" : "register");
+                        return;
+                    }
+
+                    if (isLogin) {
+                        alert("Đăng nhập thành công!");
+                        localStorage.setItem("quiz_user", data.username);
+                        setUser(data.username);
+                        setUsernameField("");
+                        setPasswordField("");
+                        setStatus("start");
+                    } else {
+                        alert("Đăng ký thành công! Hãy đăng nhập nhé.");
+                        setStatus("login");
+                    }
+                } catch (error) {
+                    alert("Lỗi kết nối tới server!");
+                    setStatus(isLogin ? "login" : "register");
+                }
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem("quiz_user");
+                setUser(null);
+                setStatus("login");
+            };
 
             // Hàm bắt đầu làm bài
             const handleStart = async () => {
@@ -38,6 +98,7 @@
                     setQuestions(data);
                     setAnswers([]);
                     setCurrentQIndex(0);
+                    setTimeLeft(120); // Đặt lại bộ đếm khi bắt đầu
                     setStatus("playing");
                 } catch (error) {
                     alert("Không thể kết nối đến server backend. Đảm bảo uvicorn main:app đang chạy trên port 8000.");
@@ -72,8 +133,8 @@
             };
 
             // Hàm nộp bài
-            const handleSubmit = async () => {
-                if (answers.length < questions.length) {
+            const handleSubmit = async (isAutoSubmit = false) => {
+                if (isAutoSubmit !== true && answers.length < questions.length) {
                     const confirmSubmit = window.confirm("Bạn chưa chọn đáp án cho tất cả câu hỏi. Vẫn nộp bài?");
                     if (!confirmSubmit) return;
                 }
@@ -93,6 +154,75 @@
                     setStatus("playing");
                 }
             };
+
+            // --- Xử lý đếm ngược thời gian ---
+            useEffect(() => {
+                let interval = null;
+                if (status === "playing") {
+                    interval = setInterval(() => {
+                        setTimeLeft(prev => {
+                            if (prev <= 1) {
+                                clearInterval(interval);
+                                return 0;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                }
+                return () => clearInterval(interval);
+            }, [status]);
+
+            useEffect(() => {
+                if (status === "playing" && timeLeft === 0) {
+                    alert("Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài cho bạn.");
+                    handleSubmit(true);
+                }
+            }, [timeLeft, status]);
+
+            const formatTime = (seconds) => {
+                const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const s = (seconds % 60).toString().padStart(2, '0');
+                return `${m}:${s}`;
+            };
+
+            // Render Login / Register
+            if (status === "login" || status === "register") {
+                const isLogin = status === "login";
+                return (
+                    <div className="container" style={{ maxWidth: '400px' }}>
+                        <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>{isLogin ? "Đăng Nhập" : "Đăng Ký"}</h1>
+                        <div style={{ marginBottom: '15px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Tên đăng nhập</label>
+                            <input
+                                type="text"
+                                value={usernameField}
+                                onChange={(e) => setUsernameField(e.target.value)}
+                                style={{ width: '100%', padding: '12px', borderRadius: '5px', border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+                                placeholder="Nhập tên đăng nhập..."
+                            />
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Mật khẩu</label>
+                            <input
+                                type="password"
+                                value={passwordField}
+                                onChange={(e) => setPasswordField(e.target.value)}
+                                style={{ width: '100%', padding: '12px', borderRadius: '5px', border: '1px solid #d1d5db', boxSizing: 'border-box' }}
+                                placeholder="Nhập mật khẩu..."
+                            />
+                        </div>
+                        <button className="btn-primary" style={{ width: '100%', marginBottom: '20px', padding: '12px' }} onClick={() => handleAuth(isLogin)}>
+                            {isLogin ? "Đăng Nhập" : "Đăng Ký"}
+                        </button>
+                        <p style={{ textAlign: 'center', margin: 0 }}>
+                            {isLogin ? "Chưa có tài khoản?" : "Đã có tài khoản?"}{" "}
+                            <a href="#" onClick={(e) => { e.preventDefault(); setStatus(isLogin ? "register" : "login"); }} style={{ color: '#3b82f6', fontWeight: 'bold', textDecoration: 'none' }}>
+                                {isLogin ? "Đăng ký ngay" : "Đăng nhập"}
+                            </a>
+                        </p>
+                    </div>
+                );
+            }
 
             // Render Loading
             if (status === "loading") {
@@ -114,7 +244,7 @@
                         <p style={{ fontSize: '18px', fontWeight: 'bold' }}>
                             Số câu đúng: {resultData.correct_count} / {resultData.total}
                         </p>
-                        
+
                         <div className="review-list">
                             <h3>Chi tiết:</h3>
                             {resultData.results.map((r, i) => {
@@ -134,8 +264,8 @@
                                 );
                             })}
                         </div>
-                        
-                        <button className="btn-primary" style={{marginTop: '20px'}} onClick={() => setStatus("start")}>
+
+                        <button className="btn-primary" style={{ marginTop: '20px' }} onClick={() => setStatus("start")}>
                             Chơi lại
                         </button>
                     </div>
@@ -146,19 +276,33 @@
             if (status === "playing" && questions.length > 0) {
                 const currentQuestion = questions[currentQIndex];
                 const currentAnswer = answers.find(a => a.question_id === currentQuestion.id)?.selected_answer;
-                
+
                 return (
                     <div className="container">
-                        <div className="progress">
-                            Câu hỏi {currentQIndex + 1} / {questions.length}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <div className="progress" style={{ margin: 0, padding: 0 }}>
+                                Câu hỏi {currentQIndex + 1} / {questions.length}
+                            </div>
+                            <div className="timer" style={{
+                                fontWeight: 'bold',
+                                fontSize: '18px',
+                                color: timeLeft <= 60 ? '#ef4444' : '#10b981',
+                                background: timeLeft <= 60 ? '#fee2e2' : '#d1fae5',
+                                padding: '8px 16px',
+                                borderRadius: '20px',
+                                boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                                transition: 'all 0.3s ease'
+                            }}>
+                                ⏱ {formatTime(timeLeft)}
+                            </div>
                         </div>
-                        
+
                         <h2 className="question-text">{currentQuestion.question}</h2>
-                        
+
                         <div className="options-container">
                             {currentQuestion.options.map((opt, i) => (
-                                <button 
-                                    key={i} 
+                                <button
+                                    key={i}
                                     className={`option-btn ${currentAnswer === opt ? 'selected' : ''}`}
                                     onClick={() => handleAnswer(currentQuestion.id, opt)}
                                 >
@@ -166,29 +310,29 @@
                                 </button>
                             ))}
                         </div>
-                        
+
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between' }}>
-                            <button 
-                                className="option-btn" 
-                                style={{flex: 1, textAlign: 'center'}}
-                                onClick={handlePrev} 
+                            <button
+                                className="option-btn"
+                                style={{ flex: 1, textAlign: 'center' }}
+                                onClick={handlePrev}
                                 disabled={currentQIndex === 0}
                             >
                                 Quay lại
                             </button>
-                            
+
                             {currentQIndex === questions.length - 1 ? (
-                                <button 
-                                    className="btn-primary" 
-                                    style={{flex: 1}}
+                                <button
+                                    className="btn-primary"
+                                    style={{ flex: 1 }}
                                     onClick={handleSubmit}
                                 >
                                     Nộp bài
                                 </button>
                             ) : (
-                                <button 
-                                    className="btn-primary" 
-                                    style={{flex: 1}}
+                                <button
+                                    className="btn-primary"
+                                    style={{ flex: 1 }}
                                     onClick={handleNext}
                                 >
                                     Tiếp theo
@@ -202,9 +346,14 @@
             // Render Start Screen
             return (
                 <div className="container">
-                    <h1>Chào mừng đến với Trắc Nghiệm App</h1>
-                    <p style={{marginBottom: '30px', color: '#6b7280', fontSize: '16px'}}>
-                        Hãy sẵn sàng để kiểm tra kiến thức lập trình của bạn. 
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h1 style={{ margin: 0, fontSize: '24px' }}>Chào mừng, <span style={{ color: '#3b82f6' }}>{user}</span>!</h1>
+                        <button onClick={handleLogout} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            Đăng xuất
+                        </button>
+                    </div>
+                    <p style={{ marginBottom: '30px', color: '#6b7280', fontSize: '16px' }}>
+                        Hãy sẵn sàng để kiểm tra kiến thức lập trình của bạn.
                         Bài ứng dụng bao gồm 5 câu hỏi liên quan đến Web Development và Fastapi.
                     </p>
                     <button className="btn-primary" onClick={handleStart}>
@@ -218,4 +367,5 @@
         root.render(<App />);
     </script>
 </body>
+
 </html>
