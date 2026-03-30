@@ -57,7 +57,6 @@ class Answer(BaseModel):
 class SubmitRequest(BaseModel):
     answers: List[Answer]
 
-  
 # --- Database & Auth Setup ---
 def init_db():
     conn = sqlite3.connect("quiz.db")
@@ -65,8 +64,8 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password_hash TEXT
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
         )
     ''')
     conn.commit()
@@ -75,7 +74,8 @@ def init_db():
 init_db()
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    # Trả về trực tiếp mật khẩu gốc thay vì mã hóa để có thể xem trong DB theo yêu cầu
+    return password
 
 class UserAuth(BaseModel):
     username: str
@@ -86,7 +86,7 @@ def register(user: UserAuth):
     conn = sqlite3.connect("quiz.db")
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", 
                        (user.username, hash_password(user.password)))
         conn.commit()
         return {"message": "Đăng ký thành công!"}
@@ -99,7 +99,7 @@ def register(user: UserAuth):
 def login(user: UserAuth):
     conn = sqlite3.connect("quiz.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?", 
+    cursor.execute("SELECT id FROM users WHERE username = ? AND password = ?", 
                    (user.username, hash_password(user.password)))
     user_record = cursor.fetchone()
     conn.close()
